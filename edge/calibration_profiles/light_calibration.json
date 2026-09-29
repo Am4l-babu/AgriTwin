@@ -1,0 +1,32 @@
+{
+  "sensor_type": "light",
+  "calibration_method": "offset_correction",
+  "offset": 6.0,
+  "multiplier": 1.0,
+  "notes": "Reference calibration \u00e2\u20ac\u201d 2026-03-10",
+  "reference_points": [
+    {
+      "reference": 30.0,
+      "measured": 24.0,
+      "condition": "Reference device measurement"
+    }
+  ],
+  "optimal_ranges": {
+    "seedlings": {
+      "min_lux": 1000,
+      "max_lux": 3000,
+      "description": "Low to medium light for germination"
+    },
+    "vegetative": {
+      "min_lux": 3000,
+      "max_lux": 7000,
+      "description": "Medium to high light for leaf growth"
+    },
+    "flowering": {
+      "min_lux": 5000,
+      "max_lux": 10000,
+      "description": "High light for flowering and fruiting"
+    }
+  },
+  "calibration_date": "2026-03-10"
+}

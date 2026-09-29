@@ -1,0 +1,41 @@
+{
+  "sensor_type": "ph",
+  "calibration_method": "three_point_polynomial",
+  "point1": {
+    "raw": 2015,
+    "actual": 4.0,
+    "buffer": "pH 4.0 standard buffer solution"
+  },
+  "point2": {
+    "raw": 1500,
+    "actual": 7.0,
+    "buffer": "pH 7.0 neutral buffer solution"
+  },
+  "point3": {
+    "raw": 1010,
+    "actual": 10.0,
+    "buffer": "pH 10.0 alkaline buffer solution"
+  },
+  "description": "Three-point pH sensor calibration",
+  "calibration_date": "2026-02-16",
+  "notes": "Use fresh buffer solutions at 25°C",
+  "temperature_compensation": {
+    "enabled": true,
+    "reference_temperature": 25.0,
+    "formula": "pH_compensated = pH_raw + 0.03 * (25 - temperature)"
+  },
+  "conversion": {
+    "output_range": {
+      "min": 0,
+      "max": 14,
+      "unit": "pH"
+    }
+  },
+  "interpretation": {
+    "very_acidic": [0, 5],
+    "acidic": [5, 6.5],
+    "optimal": [6.5, 7.5],
+    "alkaline": [7.5, 9],
+    "very_alkaline": [9, 14]
+  }
+}

@@ -1,0 +1,37 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/fog/venv/Scripts/python.exe",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/fog",
+        "${workspaceFolder}/cloud/backend"
+    ],
+    "platformio-ide.activateOnlyOnPlatformIOProject": false,
+    "files.associations": {
+        "*.h": "cpp",
+        "*.cpp": "cpp",
+        "*.json": "jsonc"
+    },
+    "editor.formatOnSave": true,
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/*.pyc": true,
+        "**/.pio": true,
+        "**/venv": true,
+        "**/.venv": true
+    },
+    "C_Cpp.default.compilerPath": "${workspaceFolder}/edge/.pio/build/esp32s3/",
+    "markdown.preview.fontSize": 14,
+    "markdown.preview.lineHeight": 1.6,
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.python",
+        "editor.tabSize": 4
+    },
+    "[cpp]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools",
+        "editor.tabSize": 2
+    },
+    "[json]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "cmake.sourceDirectory": "C:/Users/aml/Desktop/mini_project/mobile/linux"
+}

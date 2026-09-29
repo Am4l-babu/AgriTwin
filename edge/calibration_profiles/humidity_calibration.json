@@ -1,0 +1,26 @@
+{
+  "sensor_type": "humidity",
+  "calibration_method": "offset_correction",
+  "offset": 0.0,
+  "multiplier": 1.0,
+  "description": "DHT22 humidity sensor calibration",
+  "calibration_date": "2026-03-08",
+  "notes": "Default calibration — run the wizard to calibrate against a reference hygrometer",
+  "reference_points": [],
+  "conversion": {
+    "formula": "calibrated = (measured * multiplier) + offset",
+    "unit": "%",
+    "output_range": {
+      "min": 0,
+      "max": 100,
+      "unit": "%"
+    }
+  },
+  "interpretation": {
+    "very_dry": [0, 20],
+    "dry": [20, 40],
+    "comfortable": [40, 60],
+    "humid": [60, 80],
+    "very_humid": [80, 100]
+  }
+}

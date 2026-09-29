@@ -1,0 +1,37 @@
+{
+  "sensor_type": "temperature",
+  "calibration_method": "offset_correction",
+  "offset": -0.5,
+  "multiplier": 1.0,
+  "description": "DHT22 temperature sensor calibration",
+  "calibration_date": "2026-02-16",
+  "notes": "Calibrated against reference thermometer at multiple points",
+  "reference_points": [
+    {
+      "reference": 0.0,
+      "measured": 0.5,
+      "unit": "°C",
+      "condition": "Ice water bath"
+    },
+    {
+      "reference": 25.0,
+      "measured": 25.3,
+      "unit": "°C",
+      "condition": "Room temperature"
+    },
+    {
+      "reference": 37.0,
+      "measured": 37.4,
+      "unit": "°C",
+      "condition": "Body temperature"
+    }
+  ],
+  "conversion": {
+    "formula": "calibrated = (measured * multiplier) + offset",
+    "output_range": {
+      "min": -40.0,
+      "max": 80.0,
+      "unit": "°C"
+    }
+  }
+}

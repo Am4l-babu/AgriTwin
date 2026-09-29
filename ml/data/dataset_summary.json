@@ -1,0 +1,41 @@
+{
+  "generated_at": "2026-03-04T10:16:42.840442",
+  "total_rows": 28800,
+  "num_scenarios": 80,
+  "days_per_scenario": 90,
+  "steps_per_day": 4,
+  "feature_columns": [
+    "temperature",
+    "humidity",
+    "light_level",
+    "soil_moisture_pct",
+    "solar_radiation",
+    "hour_of_day",
+    "water_deficit_mm",
+    "moisture_fraction",
+    "evapotranspiration",
+    "accumulated_gdd",
+    "growth_progress_pct",
+    "day_of_season",
+    "scenario_id"
+  ],
+  "labels": {
+    "irrigation_needed": "binary 0/1",
+    "growth_stage": "0=vegetative, 1=flowering, 2=fruiting, 3=ripening, 4=mature",
+    "water_deficit_mm": "continuous (regression target)",
+    "is_anomaly": "binary 0/1 (anomaly dataset only)"
+  },
+  "class_distribution": {
+    "irrigation_needed": {
+      "0": 28652,
+      "1": 148
+    },
+    "growth_stage": {
+      "0": 3539,
+      "1": 2955,
+      "2": 2559,
+      "3": 2257,
+      "4": 17490
+    }
+  }
+}

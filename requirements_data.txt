@@ -1,0 +1,14 @@
+# Data Collection & Generation Requirements
+
+# MQTT client for ESP32 data collection
+paho-mqtt>=1.6.1
+
+# Data processing (compatible with Python 3.13)
+numpy>=1.26.0
+pandas>=2.1.0
+
+# Logging
+loguru>=0.7.0
+
+# Optional: Progress bars
+tqdm>=4.65.0

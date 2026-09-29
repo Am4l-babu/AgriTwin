@@ -1,0 +1,23 @@
+{
+    "recommendations": [
+        // ESP32/Arduino Development
+        "platformio.platformio-ide",
+        // Python Development (for Fog Layer)
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        // MQTT Tools
+        "emilast.logfilehighlighter",
+        // JSON editing (for calibration files)
+        "zainchen.json",
+        // Markdown documentation
+        "yzhang.markdown-all-in-one",
+        "davidanson.vscode-markdownlint",
+        // Git integration
+        "eamodio.gitlens",
+        // Code formatting
+        "esbenp.prettier-vscode",
+        // IoT/Embedded tools
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack"
+    ]
+}

@@ -1,0 +1,63 @@
+# Production Docker Compose — AgriTwin Cloud Layer
+#
+# Runs on the LAPTOP only.
+# Fog services (Mosquitto, Redis, fog-gateway) run natively on the Raspberry Pi.
+# See fog/README.md for Raspberry Pi setup instructions.
+#
+# Usage:
+#   cd docker
+#   docker-compose up --build -d
+#   docker-compose logs -f
+#   docker-compose down
+
+version: '3.8'
+
+services:
+  # =========================================
+  # Backend API (FastAPI + SQLite)
+  # =========================================
+  backend:
+    build:
+      context: ../cloud/backend
+      dockerfile: ../../docker/backend/Dockerfile
+    container_name: smartfarm-backend-prod
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # MQTT broker now runs on the Raspberry Pi fog node.
+      - MQTT_BROKER=agritwin-fog.local
+      - MQTT_PORT=1883
+    volumes:
+      - backend-data:/app/data
+    networks:
+      - smartfarm-network
+
+  # =========================================
+  # Frontend (Next.js → Nginx)
+  # =========================================
+  frontend:
+    build:
+      context: ../cloud/frontend
+      dockerfile: ../../docker/frontend/Dockerfile
+    container_name: smartfarm-frontend-prod
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - smartfarm-network
+
+# =========================================
+# Networks
+# =========================================
+networks:
+  smartfarm-network:
+    driver: bridge
+
+# =========================================
+# Volumes
+# =========================================
+volumes:
+  backend-data:

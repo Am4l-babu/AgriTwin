@@ -1,0 +1,15 @@
+# Advanced ML Requirements for AgriTwin
+
+# Deep Learning
+tensorflow>=2.13.0
+keras>=2.13.0
+
+# Already installed (from base requirements)
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# Optional but recommended
+matplotlib>=3.7.0  # For visualization
+seaborn>=0.12.0   # For better plots

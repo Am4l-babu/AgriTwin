@@ -1,0 +1,24 @@
+{
+  "sensor_type": "soil_moisture",
+  "calibration_method": "two_point_linear",
+  "dry_value": 3200,
+  "wet_value": 1200,
+  "description": "Capacitive soil moisture sensor calibration",
+  "calibration_date": "2026-02-16",
+  "notes": "Dry value measured in air, wet value in water",
+  "conversion": {
+    "formula": "percentage = ((raw - dry) / (wet - dry)) * 100",
+    "output_range": {
+      "min": 0,
+      "max": 100,
+      "unit": "%"
+    }
+  },
+  "interpretation": {
+    "very_dry": [0, 20],
+    "dry": [20, 40],
+    "optimal": [40, 60],
+    "wet": [60, 80],
+    "saturated": [80, 100]
+  }
+}

@@ -1,0 +1,18 @@
+# ============================================
+# Smart Farming Cloud Backend - Dependencies
+# ============================================
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+
+# MQTT Bridge (ESP32 communication)
+paho-mqtt>=2.1.0
+
+# Logging
+loguru==0.7.2
+
+# Scientific (Digital Twin physics model)
+numpy==1.26.3
+scipy==1.11.4

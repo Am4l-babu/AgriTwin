@@ -1,0 +1,1286 @@
+﻿================================================================================
+  AGRITWIN — COMPLETE PROJECT REFERENCE
+  Resource-aware Digital Twin Framework for Precision Micro-farming
+================================================================================
+  Version     : 1.1.0
+  Date        : March 2026
+  Repository  : https://github.com/Am4l-babu/S6-MINI-PROJECT
+  License     : MIT
+================================================================================
+
+
+────────────────────────────────────────────────────────────────────────────────
+  TABLE OF CONTENTS
+────────────────────────────────────────────────────────────────────────────────
+
+  1.  What is AgriTwin?
+  2.  Why it was built — Problem Statement
+  3.  Full System Architecture
+  4.  Layer 1: Edge — ESP32 Firmware
+  5.  Layer 2: Fog — Raspberry Pi Gateway
+  6.  Layer 3: Cloud — FastAPI Backend
+  7.  Layer 4: Cloud — Next.js Dashboard
+  8.  Layer 5: Mobile — Flutter App
+  9.  Digital Twin Physics Engine
+  10. AI Assistant (Ollama / LLaMA 3)
+  11. Twin Accuracy Monitor
+  12. Prometheus Observability
+  13. Complete Data Pipeline (end-to-end trace)
+  14. Protocols Used and Why
+  15. Hardware: Every Device and Every Pin
+  16. Why Each Technology Was Chosen
+  17. Similar Technologies and How AgriTwin Differs
+  18. Security Considerations
+  19. Future Technologies and Roadmap
+  20. Glossary
+
+
+────────────────────────────────────────────────────────────────────────────────
+  1. WHAT IS AGRITWIN?
+────────────────────────────────────────────────────────────────────────────────
+
+AgriTwin is a full-stack, IoT-based Digital Twin platform for small-scale
+precision agriculture ("micro-farming"). It mirrors a physical growing
+environment — temperature, humidity, light, soil moisture — inside a software
+physics model that runs in real-time alongside the real sensors.
+
+Key actions the system performs continuously:
+
+  • Collects sensor data from an ESP32 every 10 seconds via MQTT
+  • Stores readings in SQLite on a laptop (cloud layer)
+  • Runs a physics-based digital twin that predicts what the sensors will
+    read next and computes evapotranspiration, water deficit, and GDD
+  • Compares the prediction to the actual sensors and tracks accuracy
+  • Serves a Next.js web dashboard with live gauges, 96-frame plant animation,
+    and history charts
+  • Answers natural-language questions about the farm via LLaMA 3 AI
+  • Controls a water pump and grow light via MQTT relay commands
+  • Captures webcam images every 5 minutes from the Raspberry Pi
+  • Pushes all data to a Flutter mobile app with offline caching
+
+
+────────────────────────────────────────────────────────────────────────────────
+  2. WHY IT WAS BUILT — PROBLEM STATEMENT
+────────────────────────────────────────────────────────────────────────────────
+
+Problem
+-------
+Small-scale farmers and hobbyist micro-farms have no affordable, integrated
+system that:
+  (a) monitors soil + climate sensors in real time
+  (b) uses a physics model to predict future crop stress
+  (c) provides AI-powered diagnosis and recommendations
+  (d) works on low-cost commodity hardware (ESP32 ~$3, Pi Zero ~$15)
+  (e) runs entirely on-premises — no paid cloud subscription
+
+Commercial alternatives
+-----------------------
+  • John Deere Operations Center  — enterprise, expensive, proprietary hardware
+  • FarmBeats (Microsoft)         — research prototype, not productized
+  • CropIn, Taranis               — subscription-based, no local control
+  • Grafana + InfluxDB            — generic monitoring, no farm physics
+
+AgriTwin fills the gap by combining IoT edge computing, fog buffering,
+physics-based digital twin simulation, and local AI — all open-source,
+all on hardware that costs under $30 total.
+
+
+────────────────────────────────────────────────────────────────────────────────
+  3. FULL SYSTEM ARCHITECTURE
+────────────────────────────────────────────────────────────────────────────────
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                          AGRITWIN LAYERS                                │
+  ├──────────────┬──────────────────┬─────────────────────┬────────────────┤
+  │  EDGE        │  FOG             │  CLOUD              │  MOBILE        │
+  │  ESP32       │  Raspberry Pi    │  Windows Laptop     │  Flutter App   │
+  │  GPIO 4,33,  │  Zero 2 W        │  192.168.1.4        │  Android Phone │
+  │  34,25,26    │  192.168.1.7     │                     │                │
+  ├──────────────┼──────────────────┼─────────────────────┼────────────────┤
+  │  DHT11       │  Mosquitto :1883 │  FastAPI :8000      │  8 screens     │
+  │  LDR sensor  │  InfluxDB :8086  │  Next.js :3000      │  Offline cache │
+  │  Soil sensor │  fog_server.py   │  SQLite DB          │  DT Brain tab  │
+  │  Pump relay  │  camera_service  │  Ollama :11434      │  AI chat tab   │
+  │  Light relay │  mDNS .local     │  Physics Engine     │                │
+  │  ArduinoOTA  │  systemd svcs    │  Twin Accuracy      │                │
+  │  Watchdog    │                  │  Prometheus /metrics│                │
+  └──────────────┴──────────────────┴─────────────────────┴────────────────┘
+
+  Communication channels:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  ESP32 ─── MQTT (port 1883) ───► Pi Mosquitto broker                    │
+  │  Pi broker ─── MQTT (port 1883) ───► Cloud mqtt_client.py (subscribed)  │
+  │  Pi fog_server.py ─── HTTP POST (port 8000) ───► Cloud /api/v1/ingest   │
+  │  Pi camera ─── HTTP POST (port 8000) ───► Cloud /api/v1/camera/upload   │
+  │  Cloud backend ─── HTTP :8000 ◄───► Next.js frontend                    │
+  │  Cloud backend ─── WebSocket /ws/{farm_id} ◄───► Browser                │
+  │  Cloud backend ─── HTTP :8000 ◄───► Flutter mobile app                  │
+  │  Cloud backend ─── HTTP :11434 ◄───► Ollama LLaMA 3                     │
+  │  Browser/App ─── Command ───► Cloud ───► MQTT publish ───► ESP32 relay  │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+
+────────────────────────────────────────────────────────────────────────────────
+  4. LAYER 1: EDGE — ESP32 FIRMWARE
+────────────────────────────────────────────────────────────────────────────────
+
+Hardware
+--------
+  • Board: ESP32-DevKitC (Espressif ESP32, dual-core Xtensa LX6, 240 MHz)
+  • RAM: 520 KB SRAM
+  • Flash: 4 MB (with OTA partition table: 2 × 1.875 MB app slots)
+  • Connected via USB (COM3) for upload; runs standalone on 5V USB power
+
+Firmware version: 1.1.0
+File: edge/src/main.cpp
+Platform: PlatformIO + Arduino framework
+
+Sensors and Actuators
+---------------------
+  GPIO 4  — DHT11 digital sensor
+              Measures temperature (0-50°C ±2°C) and relative humidity (20-90% ±5%)
+              One-wire protocol at 1Hz max update rate
+              Why GPIO 4: simple digital GPIO, not on ADC1 or ADC2
+
+  GPIO 33 — LDR (Light Dependent Resistor)
+              10kΩ pull-down to GND, LDR to 3.3V
+              ADC1 channel 5. 0-4095 raw → mapped to 0-100% light level
+              Formula: lightPercent = map(analogRead(33), 0, 4095, 0, 100)
+              Why GPIO 33: ADC1. ADC2 (GPIO 0,2,4,12-15,25-27) conflicts with WiFi
+
+  GPIO 34 — Capacitive soil moisture sensor
+              ADC1 channel 6. Input-only pin (no internal pull-up/down)
+              Outputs ~3.0V in air (dry), ~1.2V in wet soil
+              Calibrated: dry=3000 raw → 0%, wet=1200 raw → 100%
+              Formula: soilPercent = map(raw, dryVal, wetVal, 0, 100)
+              Why GPIO 34: ADC1, input-only — ideal for analog sensor
+
+  GPIO 26 — Water pump relay (active-LOW)
+              Relay HIGH = pump OFF, relay LOW = pump ON
+              Controlled by auto-mode or MQTT command
+              Why GPIO 26: standard GPIO output, not boot-sensitive
+
+  GPIO 25 — Grow light relay (active-LOW)
+              Same logic as pump relay
+              Why GPIO 25: adjacent to GPIO 26, clean wiring for dual relay module
+              Note: GPIO 25/26 are DAC outputs too but only used as GPIO
+
+Boot-sensitive pins AVOIDED: GPIO 0 (boot mode), GPIO 2 (LED/strapping),
+GPIO 12 (MTDI, affects flash voltage), GPIO 15 (MTDO).
+
+Firmware Features
+-----------------
+  1. Multi-WiFi Fallback (WiFiMulti)
+     Configured networks in priority order:
+       1. Home Wi-Fi         (highest priority)
+       2. Mobile hotspot    (fallback)
+       3. Phone hotspot     (last resort)
+     WiFiMulti.run() picks the strongest available SSID.
+
+  2. mDNS Resolution
+     Uses ESPmDNS to resolve "agritwin-fog.local" → Pi's IP
+     No hardcoded IP needed — works even if Pi gets a new DHCP address
+     MDNS.begin("esp32-agritwin") also registers the ESP32 on the network
+
+  3. MQTT Publish (PubSubClient)
+     Broker: agritwin-fog.local:1883
+     Client ID: esp32_edge_001
+     Topics published every 10 seconds:
+       • agritwin/sensors         — full combined JSON payload
+       • farms/001/sensors/temperature/data
+       • farms/001/sensors/humidity/data
+       • farms/001/sensors/light/data
+       • farms/001/sensors/soil_moisture/data
+     JSON payload includes: value, unit, timestamp (NTP), device_id, fw_version
+
+  4. MQTT Subscribe — Relay Commands
+     Topic: farms/001/commands
+     Payload: {"command":"relay","relay":"pump","state":"on"}
+     Callback toggles GPIO 26 or 25 and publishes state back
+
+  5. OTA Updates (ArduinoOTA)
+     Password: (set in firmware; change the default)
+     Hostname: esp32-agritwin
+     Uses ESP32 built-in ArduinoOTA library
+     OTA partition table (partitions.csv):
+       nvs        0x9000    20KB   — WiFi credentials, preferences
+       otadata    0xe000     8KB   — tracks which OTA slot to boot
+       app0 (ota_0) 0x10000 1.875MB — primary app
+       app1 (ota_1) 0x1F0000 1.875MB — OTA update slot
+       spiffs    0x3D0000  192KB  — future SPIFFS filesystem
+     After upload: ArduinoOTA.handle() called in loop()
+
+  6. Hardware Watchdog Timer (esp_task_wdt)
+     Timeout: 30 seconds
+     esp_task_wdt_init(30, true) in setup()
+     esp_task_wdt_reset() called in every loop iteration
+     If loop() hangs (WiFi lost, MQTT reconnect stuck, etc.), chip resets in 30s
+
+  7. Auto-control Mode
+     pumpOnThreshold: soil < 30% → pump ON
+     pumpOffThreshold: soil >= 60% → pump OFF (hysteresis)
+     lightOnThreshold: light < 20% → light ON
+     lightOffThreshold: light >= 50% → light OFF
+     Manual MQTT command overrides auto mode temporarily
+
+  8. LWT (Last Will and Testament)
+     Topic: farms/001/lwt
+     Payload: "offline"
+     Broker publishes this automatically if ESP32 disconnects silently
+
+  9. NTP Time Sync
+     Server: pool.ntp.org
+     Timezone: IST UTC+5:30
+     Timestamp included in every MQTT payload
+
+Timing
+------
+  READ_INTERVAL  = 5000ms  (reads sensors every 5s)
+  PUBLISH_INTERVAL = 10000ms (publishes every 10s)
+  Can be updated at runtime via fog's Thompson Sampling adaptive algorithm
+  (min 5s, max 60s) by sending set_interval command via MQTT
+
+Build
+-----
+  PlatformIO env: esp32dev
+  Framework: Arduino
+  Libraries: PubSubClient, DHT, ArduinoJson, ArduinoOTA, WiFiMulti, ESPmDNS
+
+
+────────────────────────────────────────────────────────────────────────────────
+  5. LAYER 2: FOG — RASPBERRY PI GATEWAY
+────────────────────────────────────────────────────────────────────────────────
+
+Hardware
+--------
+  Board: Raspberry Pi Zero 2 W
+  CPU: 4-core ARM Cortex-A53 @ 1 GHz
+  RAM: 512 MB
+  OS: Raspberry Pi OS Lite (Debian 13 "trixie")
+  Hostname: agritwin-fog.local
+  IP: 192.168.1.7 (home Wi-Fi, DHCP reserved)
+  Camera: Logitech C270 USB webcam → /dev/video0
+
+Why Raspberry Pi Zero 2 W?
+--------------------------
+  • Runs full Linux — can run Mosquitto, InfluxDB, Python all simultaneously
+  • Low power (~1.5W) — can run 24/7 on a small USB charger
+  • WiFi built-in — no USB dongle needed (unlike Pi Zero 1)
+  • $15 price point — cost-appropriate for a fog node
+  • ARM64 — InfluxDB 1.6 has official ARMv7 builds
+  • GPIO header — expandable for future sensors
+
+Why not run everything on the ESP32?
+-------------------------------------
+  • ESP32 RAM (520KB) cannot run InfluxDB (needs ~50MB) or Python
+  • ESP32 cannot buffer data across network outages (no filesystem suitable)
+  • Separation of concerns — broker/buffer independent of sensor firmware
+
+Mosquitto MQTT Broker
+---------------------
+  Port: 1883 (no TLS for local LAN — acceptable for private network)
+  Config: /etc/mosquitto/mosquitto.conf
+  Allow anonymous: true (internal network only)
+  Persistence: yes — retains messages across broker restart
+  Subscriptions from cloud: farms/+/sensors/+/data, agritwin/sensors
+
+InfluxDB 1.6 (Local Time-Series Buffer)
+----------------------------------------
+  Port: 8086
+  Database: agritwin
+  Measurement: sensor_readings
+  Tags: farm_id, device_id, sensor_type
+  Fields: value
+  Retention: 7 days (local buffer, cloud has permanent SQLite)
+  
+  Why InfluxDB 1.6 (not 2.x)?
+  ARM32/ARMv7 support is best in 1.x — InfluxDB 2.x dropped ARMv7 support.
+  Pi Zero 2 W is ARMv8 (64-bit) but Pi Zero 1 is ARMv6-only.
+
+fog_server.py
+-------------
+  Role: MQTT subscriber → InfluxDB writer + cloud sync thread
+  Subscribes to: agritwin/sensors, farms/001/sensors/+/data
+  On message:  parse JSON → write to InfluxDB
+  Sync thread: every 30s queries InfluxDB → POST to cloud /api/v1/sensors/ingest
+  Handles: cloud unreachable (buffer locally), reconnect, deduplication
+
+camera_service.py
+-----------------
+  Uses fswebcam to capture /dev/video0 → JPEG
+  Every 5 minutes: POST /api/v1/camera/upload (multipart form data)
+  Filename includes timestamp so images are chronologically sortable
+  Cloud stores images in cloud/backend/camera_images/
+
+Systemd Services (auto-start on Pi boot)
+-----------------------------------------
+  mosquitto.service     — MQTT broker
+  agritwin-fog.service  — fog_server.py
+  camera.service        — camera_service.py
+
+Why fog layer at all? (not direct ESP32 → Cloud)
+-------------------------------------------------
+  • Local buffering: if cloud laptop is off, Pi keeps all data in InfluxDB
+  • Reduced cloud dependency: sensors keep recording even without internet
+  • Camera: ESP32 has a camera module (OV2640) but Pi USB webcam is higher quality
+  • Future expansion: Pi can run TensorFlow Lite for edge AI
+  • Protocol bridging: ESP32 uses MQTT; cloud HTTP API is REST over HTTP
+
+
+────────────────────────────────────────────────────────────────────────────────
+  6. LAYER 3: CLOUD — FASTAPI BACKEND
+────────────────────────────────────────────────────────────────────────────────
+
+File: cloud/backend/main_working.py
+Host: 0.0.0.0:8000 (accessible from all devices on LAN)
+IP: 192.168.1.4 (laptop on home Wi-Fi)
+
+Why FastAPI?
+  • Automatic OpenAPI docs at /docs — every endpoint self-documented
+  • Async Python — handles WebSocket + MQTT + HTTP concurrently
+  • Pydantic validation — request/response models auto-validated
+  • Lightweight — starts in <1s, runs on laptop without Docker
+  • Better than Flask for async WebSocket support
+
+Database: SQLite (data/sensor_history.db)
+  Tables:
+    sensor_readings   — farm_id, device_id, timestamp, temperature, humidity,
+                        light_level, soil_moisture, raw_ldr, raw_soil, rssi,
+                        free_heap, uptime
+    twin_accuracy     — farm_id, timestamp, predicted/actual for soil/temp/humidity,
+                        evapotranspiration, water_deficit, growth_stage,
+                        calibration_triggered
+
+  Why SQLite (not PostgreSQL)?
+  • Single-file database — zero configuration, no separate server process
+  • Sufficient for ~1 reading/10s = 8640 rows/day = manageable size
+  • Portable — entire DB is one file, easy to back up
+  • Python built-in — no extra pip package
+
+Core Modules
+------------
+  core/sensor_storage.py
+    • init_db()              — creates tables + indexes
+    • store_sensor_reading() — INSERT with deduplication
+    • get_latest_reading()   — SELECT most recent row
+    • get_history()          — SELECT with time window + optional device filter
+    • get_stats()            — aggregate min/max/avg
+
+  core/mqtt_client.py
+    • Subscribes to Pi broker: agritwin/sensors, farms/+/sensors/+/data
+    • On message: parse JSON, build SensorReading, call store_sensor_reading()
+    • Also triggers digital twin simulate_step() on each reading
+    • Broadcasts to all WebSocket clients via asyncio.create_task()
+    • Runs in a background thread (paho-mqtt is threaded)
+
+  core/twin_accuracy.py
+    • init_twin_accuracy_db() — creates twin_accuracy table
+    • store_prediction()      — INSERT predicted vs. actual values
+    • get_accuracy_stats()    — compute accuracy %, MAE, RMSE
+    • get_physics_model_summary() — returns 6-model state + GDD + ET_mmday
+
+API Routers
+-----------
+  api/v1/ai_assistant.py
+    POST /api/v1/ai/chat
+      • Calls Ollama HTTP API at localhost:11434
+      • Injects live sensor readings + physics model context into system prompt
+      • Response key: "reply" (not "response")
+    GET /api/v1/ai/status → checks if Ollama is responding
+
+  api/v1/camera.py
+    GET /api/v1/camera/latest    → returns metadata of newest image
+    GET /api/v1/camera/list      → paginated list of all images
+    GET /api/v1/camera/image/{f} → serves image file as JPEG
+    POST /api/v1/camera/upload   → receives multipart image from Pi
+    POST /api/v1/camera/capture  → publishes MQTT command to Pi
+
+  api/v1/twin_accuracy.py
+    GET /api/v1/twin-accuracy/stats   → accuracy %, MAE, RMSE, sample count
+    GET /api/v1/twin-accuracy/history → time-series for charting
+    GET /api/v1/twin-accuracy/brain   → full DT Brain state:
+        {
+          twin_accuracy_pct, model_reliability_pct,
+          gdd_accumulated_Cd,         ← GDD from actual temperature history
+          physics_models: {
+            1_soil_moisture_balance:  { ET_mmday, water_deficit_mm, status }
+            2_evaporation_model:      { evap_factor, rate_label }
+            3_plant_water_uptake:     { uptake_rate }
+            4_light_influence:        { growth_stage, prediction }
+            5_temperature_effect:     { effect_label }
+            6_time_evolution:         { hours_until_stress }
+          }
+        }
+
+  api/v1/metrics.py
+    GET /metrics → Prometheus text format
+    Counters: sensor_readings_total, mqtt_messages_received,
+              twin_predictions_total, twin_calibrations_total
+    Gauges:   twin_accuracy_pct, twin_avg_error
+
+  api/v1/calibration.py
+    Thompson Sampling adaptive interval:
+    Explores different sampling intervals and exploits the best-performing one
+    based on data utility vs. energy cost trade-off
+
+  api/v1/multi_agent.py
+    Multi-Agent System with:
+      • IrrigationAgent  — decides when to water
+      • LightingAgent    — decides when to adjust lighting
+      • MonitoringAgent  — detects anomalies
+      • CoordinatorAgent — resolves conflicts between agents
+    Agents communicate via a shared message bus
+
+WebSocket (/ws/{farm_id})
+  • On connect: subscribe to farm_id broadcast channel
+  • On sensor message: JSON pushed to all connected clients instantly
+  • Dashboard uses this for <1s live updates
+  • Flutter app polls HTTP instead (simpler, less battery drain)
+
+CORS
+  • Allows all origins (localhost:3000, 192.168.1.4:3000, mobile IP)
+  • Required because frontend and backend run on different ports
+
+
+────────────────────────────────────────────────────────────────────────────────
+  7. LAYER 4: CLOUD — NEXT.JS DASHBOARD
+────────────────────────────────────────────────────────────────────────────────
+
+Directory: cloud/frontend/
+Framework: Next.js 14 (App Router)
+Port: 3000
+Styling: Tailwind CSS 3
+Charts: Recharts 2
+Animation: Framer Motion 11
+Theme: Dark (#0F1219 background) + Light mode support
+Font: Inter (Google Fonts) + Roboto Mono for values
+
+Pages
+-----
+  app/page.tsx — Main Dashboard
+    • Hero: PlantDive component (96-frame plant scroll animation + live metrics)
+    • DashboardSection: live sensor cards (temp/humidity/light/soil)
+    • Relay control buttons (pump/light ON/OFF)
+    • History charts link
+    • DT Brain link (indigo/violet gradient card)
+
+  app/dt-brain/page.tsx — Digital Twin Brain
+    • Accuracy ring (circular progress showing twin accuracy %)
+    • Metric cards: predictions, reliability, avg error, GDD
+    • 6 physics model cards with equations and live values
+    • Prediction vs. actual history chart (Recharts AreaChart)
+    • Time range selector: 1h / 6h / 24h / 7d
+    • Auto-refresh every 15s
+
+  app/ai/page.tsx — AI Assistant
+    • Chat interface with LLaMA 3 responses
+    • Farm sensor context auto-injected (user sees this as "knowledge")
+    • Suggested questions pre-populated
+
+  app/camera/page.tsx — Camera Gallery
+    • Live latest image
+    • Paginated archive grid
+    • Trigger capture button
+
+  app/mas/page.tsx — Multi-Agent System
+    • Agent status cards
+    • Decision log
+    • Field status visualization
+
+Key Components
+--------------
+  components/PlantDive.tsx
+    • 96 PNG frames preloaded in memory
+    • Scroll progress mapped to frame index (requestAnimationFrame)
+    • Framer Motion: top metrics slide in from above, bottom from below
+    • Fetches /api/v1/twin-accuracy/brain on mount
+    • Displays LIVE: growth stage, water deficit (mm), ET (mm/day), GDD (°C·d)
+    • Falls back to default values if API unreachable
+
+  components/DashboardSection.tsx
+    • Polls /api/v1/sensors/latest every 5s
+    • Animated gauge for each sensor value
+    • Relay buttons with optimistic UI + server confirmation
+
+  components/HistoryCharts.tsx
+    • Fetches /api/v1/sensors/history
+    • Recharts ResponsiveContainer + AreaChart
+    • Time range toggle: 24h / 7d / 30d
+
+State Management
+  • Server Components for initial data fetch
+  • React useState/useEffect for client-side polling
+  • No Redux/Zustand — data is simple enough for local state
+  • useWebSocket custom hook for WebSocket connection
+
+Why Next.js 14?
+  • App Router — server components reduce JS bundle size
+  • Built-in API routes (used for BFF pattern where needed)
+  • TypeScript by default — type-safe throughout
+  • Fast refresh — instant dev iteration
+  • Better than Create React App for production serving
+
+
+────────────────────────────────────────────────────────────────────────────────
+  8. LAYER 5: MOBILE — FLUTTER APP
+────────────────────────────────────────────────────────────────────────────────
+
+Directory: mobile/
+Framework: Flutter 3 + Dart
+Platforms: Android (primary), iOS, Windows
+
+Why Flutter?
+  • Single codebase for Android + iOS + Windows
+  • Dart compiles to native ARM code — smooth 60fps animations
+  • Built-in Material 3 + custom theming
+  • Rich widget ecosystem (fl_chart, google_fonts, framer-like animations)
+  • Better than React Native for custom UI components
+
+Why not a web app?
+  • Native push notifications (future)
+  • Offline data persistence with shared_preferences
+  • Background services possible (future — soil alerts when app closed)
+  • Better performance on low-end Android phones
+
+App Structure
+-------------
+  lib/main.dart
+    • 8 bottom nav tabs via SingleChildScrollView (horizontal scroll prevents overflow)
+    • 8 _pages: Dashboard, History, Camera, Alerts, AI, DT Brain, Settings, Calibration
+    • iconControllers: 8 AnimationController for animated nav icons
+    • Dark/light theme with themeNotifier (ChangeNotifier)
+    • Google Fonts: Inter as base, Roboto Mono for sensor values
+    • System UI overlay style synced to theme
+
+  lib/config/app_config.dart
+    • _host = '192.168.1.4:8000'  (laptop IP on LAN)
+    • _relayHost = '192.168.1.4:8000'  (same backend handles relay)
+
+  lib/services/api_service.dart
+    • getLatest()        → GET /api/v1/sensors/latest  (5s poll)
+    • getHistory()       → GET /api/v1/sensors/history
+    • controlRelay()     → POST /api/v1/relay/control
+    • getCamera*()       → camera endpoints
+    • sendAiMessage()    → POST /api/v1/ai/chat
+    • getTwinBrain()     → GET /api/v1/twin-accuracy/brain
+    • On success: calls offline_cache.cacheLatest() to save data
+    • On failure: serves offline_cache.getCachedLatest() (transparent fallback)
+
+  lib/services/offline_cache.dart
+    • Uses shared_preferences for key-value storage
+    • cacheLatest()          — saves latest sensor reading as JSON string
+    • getCachedLatest()      — returns cached SensorData
+    • appendHistory()        — circular buffer of last 200 history readings
+    • cacheTwinBrain()       — saves last successful DT Brain response
+    • queueCommand()         — adds relay command to pending queue
+    • getPendingCommands()   — returns queued commands
+    • clearPendingCommands() — clears queue after flush
+    On reconnect: api_service.flushPendingCommands() replays all queued commands
+
+Screens
+-------
+  dashboard_screen.dart
+    • LiveSensorCard per sensor with animated progress bar
+    • CropHealthWidget: weighted score = Soil×35% + Temp×25% + Humidity×20% + Light×20%
+      Each sensor scored 0-100 via _rangeScore() with optimal and absolute range
+      Light range: 30-80% optimal, 5-100% absolute
+    • GrowthStageCard: biomass/root/leaf proxy metrics from sensor values
+    • QuickActionsCard: pump/light toggle
+    • ConnectionBanner: shows "Offline" when cached data served
+
+  dt_brain_screen.dart
+    • Circular accuracy ring (AnimationController, CustomPainter arc)
+    • Stat cards: sample count, reliability %, avg error, GDD
+    • Physics model cards: each shows equation, current values, status
+    • Auto-refresh 15s
+    • Time range popup menu (1h / 6h / 24h / 7d)
+    • Fetches /api/v1/twin-accuracy/brain
+
+  environment_insights_card.dart
+    Physics calculations (all corrected):
+    
+    VPD (Vapor Pressure Deficit):
+      svp = 0.6108 × e^(17.27 × T / (T + 237.3))  ← Tetens formula
+      vpd = svp × (1 - H/100)
+      Units: kPa; Thresholds: <0.4=Low, 0.4-1.2=Optimal, >1.2=High
+    
+    DLI (Daily Light Integral):
+      Assumes 100% light ≈ 900 µmol/m²/s PPFD, 12h photoperiod
+      DLI = (light% / 100 × 900) × 12 × 3600 / 1,000,000 = light% × 0.389
+      Units: mol/m²/day; Thresholds: <10=Low, <30=Optimal, else High
+    
+    ET (Evapotranspiration):
+      ET = 0.288 × (T + 17.8) × (light/100) × (100 - H)/100
+      Calibrated: at T=28°C, H=62%, L=80% → ~4 mm/day
+      Units: mm/day; Thresholds: <2=Low, <6=Normal, else High
+
+  crop_health_widget.dart
+    _rangeScore(value, optLow, optHigh, min, max):
+      • If optLow ≤ value ≤ optHigh → score = 100
+      • If value < optLow → linear scale from 0 (at min) to 100 (at optLow)
+      • If value > optHigh → linear scale from 100 (at optHigh) to 0 (at max)
+    
+    Sensor ranges (% scale):
+      Soil:     optimal 30-70, absolute 15-95
+      Temp:     optimal 18-32°C, absolute 5-45°C
+      Humidity: optimal 40-70%, absolute 20-95%
+      Light:    optimal 30-80%, absolute 5-100%  ← uses % not lux
+    
+    Final score = soil×0.35 + temp×0.25 + humidity×0.20 + light×0.20
+    Labels: ≥85=Excellent, ≥65=Good, ≥40=Fair, else Poor
+
+
+────────────────────────────────────────────────────────────────────────────────
+  9. DIGITAL TWIN PHYSICS ENGINE
+────────────────────────────────────────────────────────────────────────────────
+
+File: cloud/digital_twin/physics_model/comprehensive_physics.py
+Called from: cloud/backend/core/mqtt_client.py (on every MQTT message)
+
+What is a Digital Twin?
+-----------------------
+A Digital Twin is a real-time software model that mirrors a physical system.
+In AgriTwin, the twin receives the same sensor readings as the real farm and
+runs physics equations to compute values that are hard or expensive to measure
+directly (water stress, evapotranspiration, crop growth stage).
+
+The twin's predictions are compared to actual future sensor readings, and the
+accuracy is tracked over time. If the twin drifts from reality, it indicates
+the physics parameters need calibration.
+
+Classes
+-------
+  SoilProperties
+    field_capacity:      0.35 m³/m³  — soil holds 35% water at field capacity
+    wilting_point:       0.15 m³/m³  — plants can extract water above this
+    saturation:          0.45 m³/m³  — maximum water content
+    bulk_density:        1.3 g/cm³
+    rooting_depth:       0.30 m
+    available_water_capacity() = (FC - WP) × depth × 1000  → mm
+
+  WeatherData.from_sensors(sensors dict)
+    Converts ESP32 sensor reading to weather data for physics equations:
+      light% → solar_radiation (MJ/m²/day) via light_to_radiation()
+      light_to_radiation: lux/500 = W/m², then ×12h×3600/1_000_000 = MJ/day
+
+  WaterBalanceModel.simulate(weather, timestep_hours)
+    The core water balance equation:
+      M(t+1) = M(t) + I(t) - ET(t) - D(t)
+      where:
+        M = soil moisture (%)
+        I = irrigation input (from pump relay state × rate)
+        ET = evapotranspiration (Penman-Monteith, see below)
+        D = deep percolation (drainage when M > field_capacity)
+
+  WaterBalanceModel.calculate_evapotranspiration(weather)
+    Simplified Penman-Monteith Reference ET (FAO-56 approach):
+      Rn = net radiation (from solar_radiation)
+      G  = soil heat flux (≈0 for daily)
+      T  = mean temperature
+      u2 = wind speed at 2m
+      es = saturation vapour pressure = 0.6108 × e^(17.27T/(T+237.3))
+      ea = actual vapour pressure = es × (H/100)
+      Δ  = slope of saturation vapour pressure curve
+      γ  = psychrometric constant
+      ET0 = (0.408×Δ(Rn-G) + γ×(900/(T+273))×u2×(es-ea)) / (Δ + γ×(1+0.34×u2))
+    Crop coefficient Kc applied: ETc = ET0 × Kc (Kc=1.0 for generic crop)
+    Timestep scaling: ET_step = ETc × (timestep_hours / 24)
+
+  simulate_step(sensor_dict, timestep_hours=0.17)
+    Returns:
+      {
+        "water": {
+          "moisture_percent",        ← predicted soil moisture
+          "evapotranspiration",      ← mm for this timestep (~10min)
+          "water_deficit",           ← mm of deficit vs field capacity
+          ...
+        },
+        "crop": {
+          "growth_stage",            ← "vegetative"|"flowering"|"fruiting"
+          "gdd_accumulated",         ← GDD since tracking start
+          ...
+        }
+      }
+
+GDD (Growing Degree Days) Accumulation
+---------------------------------------
+  GDD_step = max(0, T_mean - T_base) × (timestep_hours / 24)
+  T_base = 10°C (standard for most crops)
+  Accumulated weekly from temperature history stored in twin_accuracy table:
+    GDD_total = Σ max(0, T(i) - 10) × (0.17/24)  for all readings in window
+  Milestones:
+    Germination/Emergence: 0-100 GDD
+    Vegetative:            100-500 GDD
+    Flowering:             500-1000 GDD
+    Fruiting/Maturity:     1000+ GDD
+
+  Why GDD?
+  Plants develop based on heat accumulation, not calendar days.
+  A tomato in a heated greenhouse accumulates GDD faster than one outdoors.
+
+ET → Daily Rate Conversion
+--------------------------
+  The physics engine produces ET per timestep (0.17 hours = ~10 min)
+  For dashboard display: ET_mmday = ET_per_step × (24 / 0.17)
+  This converts the per-step value to a standard agronomic mm/day rate
+
+
+────────────────────────────────────────────────────────────────────────────────
+  10. AI ASSISTANT (OLLAMA / LLAMA 3)
+────────────────────────────────────────────────────────────────────────────────
+
+File: cloud/backend/api/v1/ai_assistant.py
+Model: LLaMA 3 8B (Meta) via Ollama
+Ollama port: 11434
+Ollama location: %LOCALAPPDATA%\Programs\Ollama\ollama.exe (not in system PATH)
+
+Why LLaMA 3 via Ollama?
+  • Runs 100% locally — no OpenAI API key, no data leaves the house
+  • LLaMA 3 8B fits in ~8GB RAM (laptop has 16GB)
+  • Ollama provides a simple HTTP API identical to OpenAI's
+  • No subscription cost — runs indefinitely
+
+How Context Injection Works
+---------------------------
+  Every chat request:
+  1. Backend fetches latest sensor reading from SQLite
+  2. Backend fetches /api/v1/twin-accuracy/brain (physics model state)
+  3. Builds a system prompt:
+     "You are AgriTwin AI, a farm assistant.
+      Current sensor readings:
+        Temperature: 28.4°C
+        Humidity: 62.1%
+        Light: 79.9%
+        Soil moisture: 45.3%
+      Digital twin physics state:
+        ET rate: 4.2 mm/day
+        Water deficit: 12.3 mm
+        Growth stage: vegetative
+        GDD accumulated: 284 °C·d
+      Physics equations: [6 model equations]
+      Answer questions about farm conditions."
+  4. LLaMA 3 receives this context + user's question
+  5. Responds with farm-aware answer
+
+API Call to Ollama:
+  POST http://localhost:11434/api/chat
+  Body: { "model": "llama3", "messages": [...], "stream": false }
+  Response key: message.content  (wrapped as "reply" in our API)
+
+Why not RAG or fine-tuning?
+  • RAG (Retrieval Augmented Generation) adds complexity for minimal gain
+    at this scale — the entire sensor context fits in the prompt easily
+  • Fine-tuning LLaMA requires GPU training infrastructure not available
+
+
+────────────────────────────────────────────────────────────────────────────────
+  11. TWIN ACCURACY MONITOR
+────────────────────────────────────────────────────────────────────────────────
+
+File: cloud/backend/core/twin_accuracy.py
+
+Purpose
+-------
+Quantifies how well the digital twin matches the real physical system.
+Every time an MQTT message arrives (real sensor reading):
+  1. The physics engine produces a prediction for that timestep
+  2. The actual sensor values are the "ground truth"
+  3. The error (| predicted - actual |) is stored in the DB
+  4. Over time, we compute accuracy %, MAE, RMSE per model
+
+Why track accuracy?
+  • Digital twin drift detection — if error grows, physics params need recalibration
+  • Calibration trigger — when RMSE > threshold, flag for recalibration
+  • Trustworthiness metric — users see "65% accuracy" and know to trust/distrust
+  • Research value — quantifies Penman-Monteith model quality for local conditions
+
+Accuracy Formula
+  twin_accuracy_pct = max(0, 100 - avg_soil_moisture_error)
+  Where avg_soil_moisture_error is the mean absolute error in %
+
+model_reliability_pct = same formula applied to multi-model aggregate
+
+GDD Calculation in Backend
+  • Queries twin_accuracy table for all readings in time window
+  • GDD = Σ max(0, actual_temperature(i) - 10) × (0.17 / 24)
+  • This is real GDD from real temperatures — not a prediction
+
+ET Daily Rate in Backend
+  • et_per_step from physics engine (mm per 0.17hr step)
+  • et_mmday = et_per_step × (24 / 0.17)  ← consistent with FAO-56 daily units
+
+
+────────────────────────────────────────────────────────────────────────────────
+  12. PROMETHEUS OBSERVABILITY
+────────────────────────────────────────────────────────────────────────────────
+
+File: cloud/backend/api/v1/metrics.py
+Endpoint: GET /metrics
+
+Metrics Exported
+  sensor_readings_total        Counter  — total sensor readings stored in DB
+  mqtt_messages_received       Counter  — total MQTT messages received by backend
+  twin_predictions_total       Counter  — total physics engine simulate_step calls
+  twin_calibrations_total      Counter  — times calibration was triggered
+  twin_accuracy_pct             Gauge   — current twin accuracy percentage
+  twin_avg_error                Gauge   — current average prediction error
+
+Why Prometheus?
+  • Industry-standard observability format
+  • Works with Grafana for visualization (future)
+  • Scrape-based: connects to existing monitoring stacks without code change
+  • Lightweight — no external service needed, just an HTTP endpoint
+
+Future: Add Grafana container to docker-compose.yml to scrape /metrics
+and build retention charts, alert rules, SLA tracking.
+
+
+────────────────────────────────────────────────────────────────────────────────
+  13. COMPLETE DATA PIPELINE (END-TO-END TRACE)
+────────────────────────────────────────────────────────────────────────────────
+
+Trace: One sensor reading, from physical measurement to Flutter display
+
+  t=0s    ESP32 ADC reads GPIO 33 (LDR): analogRead(33) = 2848
+          ↓ map(2848, 0, 4095, 0, 100) = 69.5% light level
+          ESP32 runs DHT11.read(): temp=28.4°C, humidity=62.1%
+          ESP32 analogRead(34) (soil): raw=1876, mapped=53.2%
+
+  t=5s    (next publish interval)
+          ESP32 constructs JSON:
+          {
+            "device_id": "esp32_edge_001",
+            "farm_id": "farms/001",
+            "temp": 28.4,
+            "humidity": 62.1,
+            "light": 69.5,
+            "soil": 53.2,
+            "pump": false,
+            "light_relay": false,
+            "fw_version": "1.1.0",
+            "timestamp": "2026-03-11T08:23:15+05:30"
+          }
+          ESP32 publishes to MQTT topic: agritwin/sensors (QoS 1)
+          ESP32 publishes individual topics: farms/001/sensors/temperature/data, etc.
+
+  t=5ms   Pi Mosquitto broker receives message, stores to retain buffer
+
+  t=5ms   Pi fog_server.py subscriber callback fires:
+          → Parses JSON, writes to InfluxDB measurement "sensor_readings"
+          → Checks if 30s sync interval elapsed
+
+  t=5ms   Cloud mqtt_client.py subscriber callback fires (direct subscriber):
+          → Parses JSON
+          → Calls store_sensor_reading() → INSERT into sensor_readings SQLite
+          → Calls DigitalTwinPhysics.simulate_step({temp:28.4, humidity:62.1,
+              light:69.5, soil:53.2}, timestep_hours=0.17)
+          → physics engine returns: {
+              water: {moisture_percent:52.8, evapotranspiration:0.029,
+                      water_deficit:8.4},
+              crop: {growth_stage:"vegetative", gdd_accumulated:284.2}
+            }
+          → Calls store_prediction(farm_id, predicted, actual) → INSERT twin_accuracy
+          → Builds WebSocket message: { type:"sensor_update", data:{...} }
+          → Broadcasts to all connected WebSocket clients
+
+  t=5ms   Browser receives WebSocket message
+          → React state updates
+          → DashboardSection re-renders with new values
+          → No network roundtrip needed after initial connection
+
+  t=5s    Flutter app HTTP poll fires:
+          → GET http://192.168.1.4:8000/api/v1/sensors/latest?farm_id=farm_001
+          → Backend queries SQLite: SELECT * FROM sensor_readings ORDER BY timestamp DESC LIMIT 1
+          → Returns: { temperature:28.4, humidity:62.1, light_level:69.5, soil_moisture:53.2 }
+          → Flutter saves to offline_cache
+          → CropHealthWidget recalculates score:
+              soilScore = rangeScore(53.2, 30, 70, 15, 95) = 100 (in optimal range)
+              tempScore = rangeScore(28.4, 18, 32, 5, 45) = 100
+              humScore  = rangeScore(62.1, 40, 70, 20, 95) = 100
+              lightScore = rangeScore(69.5, 30, 80, 5, 100) = 100
+              score = 100×0.35 + 100×0.25 + 100×0.20 + 100×0.20 = 100 (Excellent)
+          → EnvironmentInsightsCard calculates:
+              VPD = 0.6108×e^(17.27×28.4/266.1)×(1-0.621) = 1.35 kPa ("High")
+              DLI = 69.5 × 0.389 = 27.0 mol (Optimal)
+              ET  = 0.288×46.2×0.695×0.379 = 3.7 mm (Normal)
+
+  t=30s   Pi fog_server.py sync thread fires:
+          → Queries InfluxDB for readings since last sync
+          → POST http://192.168.1.4:8000/api/v1/sensors/ingest
+          → Backend deduplicates by timestamp, skips already-stored readings
+
+  t=5min  Pi camera_service.py captures image:
+          → fswebcam /dev/video0 --jpeg 85 -r 1280x720 image_2026-03-11_082500.jpg
+          → POST http://192.168.1.4:8000/api/v1/camera/upload (multipart)
+          → Backend saves to cloud/backend/camera_images/
+          → Next.js camera page shows new image
+
+
+────────────────────────────────────────────────────────────────────────────────
+  14. PROTOCOLS USED AND WHY
+────────────────────────────────────────────────────────────────────────────────
+
+MQTT (Message Queuing Telemetry Transport)
+  Port: 1883 (TCP)
+  QoS: 1 (at least once delivery)
+  Broker: Eclipse Mosquitto on Raspberry Pi
+  Why MQTT:
+    • Designed for constrained devices (IoT protocol, minimal overhead)
+    • Publish/subscribe — ESP32 doesn't need to know cloud's IP
+    • QoS 1 ensures messages delivered even if Pi temporarily unreachable
+    • LWT (Last Will) mechanism for device offline detection
+    • Retained messages — relay state persists across reconnects
+    • 2KB per message — tiny overhead for sensor values
+  Alternatives considered:
+    • HTTP polling from ESP32 — higher overhead, not suitable for IoT
+    • CoAP — less library support on ESP32
+    • WebSocket from ESP32 — too complex, no broker layer
+
+HTTP REST (FastAPI)
+  Port: 8000 (TCP)
+  Why REST/HTTP:
+    • Universal — supported by Python, JavaScript, Flutter without custom libraries
+    • Stateless — no connection management
+    • JSON payloads — easy to debug with curl/Postman
+    • Documentation via OpenAPI auto-generated
+    • HTTP is human-readable in Wireshark for debugging
+
+WebSocket
+  Path: /ws/{farm_id}
+  Why WebSocket:
+    • Browser dashboard needs sub-1s updates
+    • HTTP polling at 1s would be 86400 requests/day
+    • WebSocket uses one persistent connection for push updates
+    • Negligible protocol overhead after handshake
+
+mDNS (.local hostnames)
+  ESP32 resolves "agritwin-fog.local"
+  Why mDNS:
+    • No need to hardcode Pi's DHCP IP in firmware
+    • Works on any router without setup
+    • Standard RFC 6762 — works on macOS, Linux, Windows 10+
+
+InfluxDB Line Protocol (Fog internal)
+  fog_server.py writes to InfluxDB using line protocol:
+    sensor_readings,farm_id=farm_001,sensor_type=temperature value=28.4 1710134596000000000
+  Why line protocol:
+    • Optimized for high-frequency time-series writes
+    • Single TCP connection, streaming writes
+
+
+────────────────────────────────────────────────────────────────────────────────
+  15. HARDWARE: EVERY DEVICE AND EVERY PIN
+────────────────────────────────────────────────────────────────────────────────
+
+ESP32 DevKit (Espressif ESP32-WROOM-32)
+  CPU:    Dual-core Xtensa LX6, 240 MHz
+  RAM:    520 KB SRAM
+  Flash:  4 MB SPI NOR flash
+  WiFi:   802.11 b/g/n, 2.4 GHz
+  BT:     Bluetooth 4.2
+  Power:  3.3V regulated, USB 5V input via CP2102/CH9102 USB-UART
+
+Pin-by-pin breakdown:
+
+  GPIO 4   — DHT11 data pin
+    Signal type: Single-wire digital
+    Protocol: DHT proprietary (Maxim 1-Wire variant)
+    Timing: 18ms start → 40-bit response (8-bit humidity int, 8-bit frac,
+            8-bit temp int, 8-bit frac, 8-bit checksum)
+    Pull-up: 10kΩ internal (DHT lib configures this)
+    Max update rate: 1 Hz
+    Power pin of DHT11: 3.3V (from ESP32 3V3 pin)
+    Ground: ESP32 GND
+    Why this pin: GPIO4 is not on ADC2 and not boot-sensitive
+
+  GPIO 33  — LDR analog input
+    Signal type: Analog voltage 0-3.3V
+    Circuit: 3.3V → LDR → GPIO33 → 10kΩ → GND
+    In bright light: LDR ~100Ω → GPIO33 near 3.3V → ADC near 4095
+    In darkness: LDR ~1MΩ → GPIO33 near 0V → ADC near 0
+    ADC1 channel 5 — 12-bit resolution (0-4095)
+    attenuation: 11dB (full 0-3.3V range)
+    mapped: (raw / 4095) × 100 = light percentage
+    Why GPIO33: ADC1, not ADC2 (WiFi-safe)
+
+  GPIO 34  — Capacitive soil moisture sensor analog output
+    Signal type: Analog voltage (inverted — more water = lower voltage)
+    Sensor: Capacitive (~$1 module), uses 555 timer oscillator
+    Typical range: ~1.2V wet (soil saturated) to ~3.0V dry (air)
+    Raw range: ~1476 wet to ~3680 dry at 12-bit ADC
+    Calibration: map(raw, wetRaw, dryRaw, 100, 0) → soil %
+    GPIO34: input-only (no internal pull-up/down available)
+    ADC1 channel 6
+    Why GPIO34: ADC1, input-only is fine for a sensor output
+
+  GPIO 26  — Water pump relay
+    Signal type: Digital output (3.3V logic)
+    Relay module: KY-019 / 5V active-LOW relay
+    Circuit: GPIO26 → 1kΩ → transistor base → relay coil (5V)
+    Active-LOW: digitalWrite(LOW) = relay energized = pump ON
+    Boot state: HIGH (pump stays OFF during boot)
+    Pump: small 5V submersible pump, ~1A
+    Why GPIO26: not boot-sensitive, not ADC2
+
+  GPIO 25  — Grow light relay
+    Same as GPIO26 configuration
+    Grow light: 12V LED grow strip, controlled via 5V relay
+    Why GPIO25: adjacent to GPIO26 (clean wiring), both are DAC-capable but
+               used as digital GPIO here
+
+
+Relay Wiring Detail
+  Relay module pins: VCC, GND, IN, COM, NO, NC
+  VCC → ESP32 Vin (5V from USB) or external 5V
+  GND → common ground
+  IN  → GPIO 26 or 25
+  COM → +ve wire of pump/light power supply
+  NO  → pump/light (Normally Open — circuit opens when relay OFF)
+  NC  → not used
+
+  When IN=LOW (ESP32 drives LOW):
+    → Relay coil energized → COM-NO connected → pump/light ON
+  When IN=HIGH (default):
+    → Relay open → pump/light OFF
+
+
+Raspberry Pi Zero 2 W
+  SoC:   Broadcom BCM2710A1 (4x ARM Cortex-A53, 1GHz, 64-bit)
+  RAM:   512 MB LPDDR2
+  USB:   1x micro-USB OTG (camera + internet sharing possible)
+  WiFi:  802.11 b/g/n, 2.4GHz (cypress CYW43438)
+  Power: 5V 2A via micro-USB
+
+  Logitech C270 USB webcam:
+    Resolution: 720p (1280×720) at 30fps
+    Interface: USB 2.0 (UVC class — plug-and-play on Linux)
+    Linux device: /dev/video0
+    Capture command: fswebcam -d /dev/video0 -r 1280x720 --jpeg 85 output.jpg
+
+
+────────────────────────────────────────────────────────────────────────────────
+  16. WHY EACH TECHNOLOGY WAS CHOSEN
+────────────────────────────────────────────────────────────────────────────────
+
+ESP32 (not ESP8266, not Arduino Nano, not STM32)
+  • Dual-core, 240MHz — processes sensors + MQTT + OTA concurrently
+  • Built-in WiFi — no external module needed (unlike Arduino)
+  • ADC1 independent of WiFi radio (ESP8266 has similar ADC issues)
+  • OTA update support built into Arduino framework
+  • 4MB flash with OTA partition support (2 app slots)
+  • $3-5 price — cheaper than Raspberry Pi for edge sensor node
+  • Rich PlatformIO ecosystem — libraries for every sensor type
+
+PlatformIO (not Arduino IDE)
+  • Project structure: src/, include/, lib/ — proper software engineering
+  • Multiple build environments (esp32dev + esp8266) in one platformio.ini
+  • Native VS Code integration
+  • Faster build caching than Arduino IDE
+  • Unit testing support
+
+Mosquitto MQTT (not RabbitMQ, not Kafka)
+  • Tiny footprint — 100KB binary, runs on Pi Zero with 512MB RAM
+  • MQTT protocol designed for IoT (low bandwidth, high latency tolerance)
+  • RabbitMQ needs 128MB+ RAM just for broker
+  • Kafka is for thousands of messages/sec — overkill for 1 sensor per 10s
+
+InfluxDB 1.6 (not TimescaleDB, not InfluxDB 2.x, not SQLite on Pi)
+  • Built for time-series — automatic time-based indexing
+  • Handles bursts (ESP32 reconnects, sends lots at once)
+  • ARM32 binaries available — InfluxDB 2.x dropped ARM32 support
+  • Retention policy — auto-expires old data (7 days local buffer)
+  • Why not SQLite on Pi: InfluxDB handles time-series queries 10x faster
+
+FastAPI (not Flask, not Django, not Express.js)
+  • Async — handles WebSocket + MQTT + HTTP concurrently without threading issues
+  • Auto OpenAPI docs — every endpoint documented at /docs
+  • Pydantic V2 for validation — catches malformed sensor payloads
+  • Best performance among Python web frameworks (near Node.js speeds)
+  • Modern Python type hints — IDE autocomplete throughout
+
+SQLite (not PostgreSQL, not MongoDB)
+  • Zero configuration — no server process, no installation
+  • Single-file portability — sensor_history.db is self-contained
+  • Sufficient for IoT scale — 1 reading/10s = 3 million rows/year ≈ manageable
+  • Python built-in (sqlite3 module)
+  • ACID compliant — no data loss on power failure
+
+Ollama + LLaMA 3 8B (not OpenAI GPT, not Gemini)
+  • 100% offline — data never leaves local network
+  • No API key, no cost, no rate limits
+  • LLaMA 3 8B: best open-source model at the time that fits in 8GB VRAM/RAM
+  • Ollama: simplest way to run LLaMA 3 locally (one-command install)
+  • Comparable quality to GPT-3.5 for simple Q&A tasks
+
+Next.js 14 (not Create React App, not Vite, not Vue)
+  • App Router: server components reduce client JS bundle
+  • TypeScript by default — type safety with FastAPI response shapes
+  • next/image optimization built-in
+  • Fast Refresh for development
+  • Production-ready: handles static assets, API routes, SSR
+
+Flutter (not React Native, not Xamarin, not native Android)
+  • Single Dart codebase for Android, iOS, Windows
+  • Compiled to native ARM — no JavaScript bridge (React Native bottleneck)
+  • Rich widget set — custom UI without platform limitations
+  • Dart's sound null safety catches bugs at compile time
+  • fl_chart: excellent charts library native to Flutter (better than Victory Native)
+
+Recharts (not Chart.js, not D3, not Plotly)
+  • React-native integration — works directly with React state
+  • Responsive by default (no resize handlers needed)
+  • Composable: Area + Line + Bar in same chart
+  • Lighter than Plotly for simple line charts
+
+Framer Motion (not CSS transitions, not GSAP)
+  • React-first: animate based on state changes naturally
+  • useScroll + useTransform: PlantDive scroll-linked animation
+  • Spring physics: natural-feeling animations
+  • Layout animations: elements animate when DOM changes
+
+
+────────────────────────────────────────────────────────────────────────────────
+  17. SIMILAR TECHNOLOGIES AND HOW AGRITWIN DIFFERS
+────────────────────────────────────────────────────────────────────────────────
+
+Commercial Smart Farming Platforms
+-----------------------------------
+  Platform         | Price/mo | Local? | Physics DT? | AI?  | Open Source?
+  ------------------|----------|--------|-------------|------|-------------
+  AgriTwin          | $0       | Yes    | Yes (6 mdls)| Yes  | Yes (MIT)
+  John Deere Ops    | $500+    | No     | No          | Yes  | No
+  FarmBeats (MS)    | Research | No     | Partial     | No   | No
+  CropIn            | $1000+   | No     | No          | Yes  | No
+  OpenFarm          | $0       | No     | No          | No   | Yes (no IoT)
+
+IoT Monitoring Platforms
+-------------------------
+  Platform     | DT Physics | AI Chat | Mobile App | Price
+  -------------|-----------|---------|------------|------
+  AgriTwin     | Yes        | LLaMA 3 | Flutter 8t | Free
+  Grafana+Prom | No         | No      | No (web)   | Free
+  Home Assist  | No         | No      | Yes (basic)| Free
+  Blynk IoT    | No         | No      | Yes        | $25/mo
+  AWS IoT      | No         | Yes     | Build own  | Pay per use
+
+Digital Twin Platforms
+-----------------------
+  Platform        | Real-time IoT? | Physics models? | Edge device?
+  ----------------|---------------|----------------|-------------
+  AgriTwin        | Yes (MQTT)     | 6 Penman-Monteith| ESP32
+  Azure DT        | Yes            | Custom          | Any
+  NVIDIA Omniverse| No             | Simulation only | No
+  Eclipse Ditto   | Yes            | None            | Any (generic)
+  FarmBeats       | Partial        | Partial         | Custom
+
+
+────────────────────────────────────────────────────────────────────────────────
+  18. SECURITY CONSIDERATIONS
+────────────────────────────────────────────────────────────────────────────────
+
+Current (LAN-only deployment)
+  • All services run on private LAN (192.168.1.x) — not exposed to internet
+  • Mosquitto: anonymous connections allowed (acceptable for private network)
+  • FastAPI: CORS allows all origins (acceptable for LAN, not for internet)
+  • OTA: password-protected (REDACTED)
+
+If exposing to internet (future hardening needed)
+  • MQTT: enable TLS (port 8883), client certificates
+  • FastAPI: JWT authentication, HTTPS via nginx reverse proxy
+  • CORS: restrict to specific origins
+  • Relay control: require authentication token
+  • SQLite: ensure DB file permissions (chmod 600)
+  • Ollama: not expose port 11434 externally (runs as localhost only)
+  • Input validation: all API endpoints use Pydantic models (injection-safe)
+
+
+────────────────────────────────────────────────────────────────────────────────
+  19. FUTURE TECHNOLOGIES AND ROADMAP
+────────────────────────────────────────────────────────────────────────────────
+
+Near-term (1-3 months)
+  • TinyML on ESP32: plant disease detection from OV2640 camera frames
+    (MobileNetV2 model, TensorFlow Lite, running on ESP32's 520KB RAM limited)
+  • LoRa radio: extend range beyond WiFi for outdoor large-scale farms
+    (SX1276 module, LPWAN, 5km range, 250bps)
+  • Capacitive irrigation auto-scheduling: Thompson Sampling RL agent
+    already coded in calibration.py — needs integration with pump relay
+
+Medium-term (3-6 months)
+  • Grafana dashboard: connect Prometheus /metrics to Grafana for long-term
+    retention charts and alert rules
+  • pH sensor: add BNC probe, analog output → ESP32 ADC, calibrated 3-point
+  • CO2 sensor: SCD40 (I2C), correlates with plant respiration
+  • Federated learning: multiple farm nodes train shared ML model without
+    centralizing data (privacy-preserving)
+
+Long-term (6-12 months)
+  • Drone integration: map farm field, geotag sensor zones
+  • Solar power: ESP32 + LiPo battery + solar panel, deep sleep mode
+  • Blockchain: immutable audit log of sensor readings (Hyperledger Fabric)
+  • Cloud deployment: Kubernetes on AWS/GCP with Terraform IaC
+  • Multi-farm: extend farm_id model from farm_001 to N farms
+  • LSTM forecasting: predict soil moisture 24h ahead using historical data
+    (LSTM model code already exists in ml/ directory)
+  • Plant vision AI: YOLO-based leaf area estimation from camera images
+
+
+────────────────────────────────────────────────────────────────────────────────
+  20. GLOSSARY
+────────────────────────────────────────────────────────────────────────────────
+
+ADC1/ADC2   : Analog-to-Digital Converters on ESP32. ADC2 shared with WiFi.
+              Use ADC1 for sensors when WiFi is active.
+
+DLI         : Daily Light Integral. Total photosynthetically active radiation
+              received per day. Units: mol/m²/day. Optimal for most crops: 10-30.
+
+ET          : Evapotranspiration. Water lost from soil via evaporation + plant
+              transpiration. Units: mm/day. Key metric in water balance models.
+
+FAO-56      : UN Food and Agriculture Organization Paper 56 — the standard
+              reference for Penman-Monteith ET calculation.
+
+GDD         : Growing Degree Days. Cumulative heat units above base temperature.
+              GDD = Σ max(0, T - T_base). Used to predict crop development stages.
+
+IoT         : Internet of Things. Network of physical devices with sensors
+              that collect and exchange data.
+
+LWT         : Last Will and Testament. MQTT feature where broker publishes
+              a message on behalf of a disconnected client.
+
+MQTT        : Message Queuing Telemetry Transport. Lightweight publish-subscribe
+              protocol designed for IoT devices over TCP.
+
+mDNS        : Multicast DNS. Resolves hostnames like "raspberrypi.local"
+              on local networks without a DNS server.
+
+OTA         : Over-The-Air. Firmware updates delivered via WiFi rather than USB.
+
+Penman-Monteith : Physics equation for reference evapotranspiration (ET0).
+              Accounts for temperature, humidity, wind speed, solar radiation.
+              Standard in agronomy (FAO-56 formulation).
+
+PPFD        : Photosynthetic Photon Flux Density. Light available for
+              photosynthesis. Units: µmol/m²/s.
+
+QoS         : Quality of Service. MQTT delivery guarantees:
+              0=fire-and-forget, 1=at-least-once, 2=exactly-once.
+
+VPD         : Vapor Pressure Deficit. Difference between air's saturation vapor
+              pressure and actual vapor pressure. High VPD = plant water stress.
+
+Digital Twin: Real-time software model that mirrors a physical system,
+              synchronized with live sensor data.
+
+Fog Computing: Intermediate computing layer between edge devices and cloud.
+               Provides local buffering, preprocessing, reduced latency.
+
+Thompson Sampling: A Bayesian exploration-exploitation algorithm used here for
+              adaptive sensor read intervals — balancing data quality vs. power.
+
+================================================================================
+  END OF AGRITWIN WORKING REFERENCE
+  Generated: March 2026 | Repository: github.com/Am4l-babu/S6-MINI-PROJECT
+================================================================================

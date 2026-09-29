@@ -1,0 +1,89 @@
+# =============================================================================
+# AgriTwin — Cloud Layer Docker Compose
+# =============================================================================
+# Runs on the LAPTOP only.
+#
+# Architecture:
+#   ESP32 sensors
+#     → MQTT (port 1883)
+#     → Raspberry Pi Zero 2 W  (fog layer — agritwin-fog.local)
+#     → HTTP API (port 8000)
+#     → Laptop  (cloud layer — this file)
+#     → Flutter App / Dashboard
+#
+# The fog layer (Mosquitto, Redis, fog-gateway Python app) runs NATIVELY on
+# the Raspberry Pi — NOT in Docker on the laptop.
+# See fog/README.md for Raspberry Pi setup instructions.
+#
+# Services managed here (laptop only):
+#   - cloud-backend : Cloud REST API (FastAPI + SQLite + Digital Twin)
+#   - frontend      : Next.js dashboard
+#
+# Usage:
+#   docker-compose up --build        # Start cloud services
+#   docker-compose logs -f           # View logs
+#   docker-compose down              # Stop all
+#   docker-compose down -v           # Stop + remove volumes
+
+services:
+
+  # ===================================
+  # Cloud Backend (FastAPI + SQLite)
+  # Receives sensor data from the Raspberry Pi fog node via HTTP POST.
+  # ===================================
+  cloud-backend:
+    build:
+      context: ./cloud
+      dockerfile: backend/Dockerfile
+    container_name: smartfarm-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # The MQTT broker now lives on the Raspberry Pi (agritwin-fog.local).
+      # The cloud backend primarily receives data via HTTP from the fog node.
+      # Only set MQTT_BROKER if you want the cloud backend to also subscribe
+      # directly to the RPi broker for real-time forwarding.
+      - MQTT_BROKER=agritwin-fog.local
+      - MQTT_PORT=1883
+      - CALIBRATION_DIR=/app/calibration_profiles
+    volumes:
+      - backend-data:/app/data
+      - ./edge/calibration_profiles:/app/calibration_profiles:ro
+    networks:
+      - smartfarm-network
+
+  # ===================================
+  # Frontend Dashboard (Next.js)
+  # ===================================
+  frontend:
+    build:
+      context: ./cloud/frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_BACKEND_URL=ws://localhost:8000
+        - NEXT_PUBLIC_BACKEND_HTTP=http://localhost:8000
+    container_name: smartfarm-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=ws://localhost:8000
+      - NEXT_PUBLIC_BACKEND_HTTP=http://localhost:8000
+    depends_on:
+      - cloud-backend
+    networks:
+      - smartfarm-network
+
+# ===================================
+# Networks
+# ===================================
+networks:
+  smartfarm-network:
+    driver: bridge
+
+# ===================================
+# Volumes
+# ===================================
+volumes:
+  backend-data:

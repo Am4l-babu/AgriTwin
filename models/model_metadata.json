@@ -1,0 +1,25 @@
+{
+  "model_type": "Gradient Boosting",
+  "test_accuracy": 1.0,
+  "cv_accuracy": 0.9947916666666667,
+  "cv_std": 0.0046584749531245456,
+  "features": [
+    "Soil_Moisture",
+    "Ambient_Temperature",
+    "Soil_Temperature",
+    "Humidity",
+    "Light_Intensity",
+    "Soil_pH",
+    "Nitrogen_Level",
+    "Phosphorus_Level",
+    "Potassium_Level",
+    "Chlorophyll_Content",
+    "Electrochemical_Signal"
+  ],
+  "classes": [
+    "Healthy",
+    "High Stress",
+    "Moderate Stress"
+  ],
+  "needs_scaling": false
+}

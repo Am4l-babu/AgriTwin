@@ -1,0 +1,11 @@
+Soil_Moisture
+Ambient_Temperature
+Soil_Temperature
+Humidity
+Light_Intensity
+Soil_pH
+Nitrogen_Level
+Phosphorus_Level
+Potassium_Level
+Chlorophyll_Content
+Electrochemical_Signal
